@@ -154,6 +154,12 @@ while True:
             print("Prediction Error:", e)
             continue
 
+        # ✅ NEW: Show "Door is Open" message after face match
+        lcd_clear()
+        lcd_display("Door is Open", LINE_1)
+        lcd_display("Welcome", LINE_2)
+        speak("Door is open, welcome")
+
         # ✅ Unlock door for 10 seconds after face match
         unlock_door()
         time.sleep(10)
