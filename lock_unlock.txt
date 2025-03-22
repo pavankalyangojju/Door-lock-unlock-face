@@ -150,7 +150,7 @@ while True:
             print("Prediction Error:", e)
             continue
 
-        # Unlock door for 10 seconds
+        # ✅ Unlock door for 10 seconds after face match
         unlock_door()
         time.sleep(10)
         lock_door()
@@ -180,6 +180,11 @@ while True:
             speak("Please put correct card")
             time.sleep(3)
             continue
+
+        # ✅ Unlock again for 5 seconds after card match
+        unlock_door()
+        time.sleep(5)
+        lock_door()
 
         buzzer_and_lcd_message(recognized_name)
 
