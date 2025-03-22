@@ -61,12 +61,15 @@ def lcd_display(message, line):
     for char in message:
         lcd_byte(ord(char), LCD_CHR)
 
+def lcd_clear():
+    lcd_display("", LINE_1)
+    lcd_display("", LINE_2)
+
 lcd_init()
 lcd_display("HI,Welcome to", LINE_1)
 lcd_display("Access System", LINE_2)
 time.sleep(3)
-lcd_display("", LINE_1)
-lcd_display("", LINE_2)
+lcd_clear()
 
 # --- Other Modules ---
 engine = pyttsx3.init()
@@ -95,12 +98,12 @@ def buzzer_and_lcd_message(name):
         time.sleep(1)
         GPIO.output(BUZZER_PIN, GPIO.LOW)
         time.sleep(0.5)
+    lcd_clear()
     lcd_display("Access Granted", LINE_1)
     lcd_display(f"Welcome {name}", LINE_2)
     speak(f"Access granted, welcome {name}")
     time.sleep(3)
-    lcd_display("", LINE_1)
-    lcd_display("", LINE_2)
+    lcd_clear()
 
 # --- Load Face Data ---
 video = cv2.VideoCapture(0)
@@ -127,6 +130,7 @@ knn.fit(FACES, LABELS)
 
 # --- MAIN LOOP ---
 while True:
+    lcd_clear()
     lcd_display("Put Face in Front", LINE_1)
     lcd_display("of Camera", LINE_2)
 
@@ -155,6 +159,7 @@ while True:
         time.sleep(10)
         lock_door()
 
+        lcd_clear()
         lcd_display("Put RFID Card", LINE_1)
         speak("Put your RFID Card")
 
@@ -163,6 +168,7 @@ while True:
             if not card_id:
                 raise ValueError("No RFID card detected!")
         except Exception as e:
+            lcd_clear()
             lcd_display("RFID Read Error!", LINE_1)
             lcd_display("Try Again", LINE_2)
             print(f"RFID Error: {e}")
@@ -170,12 +176,14 @@ while True:
             continue
 
         if recognized_name not in LABELS:
+            lcd_clear()
             lcd_display("Unknown Face", LINE_1)
             lcd_display("Try Again", LINE_2)
             continue
 
         expected_rfid = RFID_LIST[LABELS.index(recognized_name)]
         if str(card_id) != str(expected_rfid):
+            lcd_clear()
             lcd_display("Put Correct Card", LINE_1)
             speak("Please put correct card")
             time.sleep(3)
