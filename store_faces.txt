@@ -101,6 +101,9 @@ lcd.clear()
 lcd.write_string("Saving Data...")
 print("Saving data...")
 
+# ✅ Create 'data' folder if not exists
+os.makedirs('data', exist_ok=True)
+
 # Save face data
 faces_data = np.asarray(faces_data).reshape(len(faces_data), 50, 50, 3)
 
