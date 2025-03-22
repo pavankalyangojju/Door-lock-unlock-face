@@ -82,13 +82,13 @@ def speak(text):
 # --- Servo Control (Reliable 180° ↔ 0°) ---
 def unlock_door():
     print("Servo: Unlocking (180°)")
-    servo.ChangeDutyCycle(12.0)  # ~180 degrees
+    servo.ChangeDutyCycle(12.0)
     time.sleep(1)
     servo.ChangeDutyCycle(0)
 
 def lock_door():
     print("Servo: Locking (0°)")
-    servo.ChangeDutyCycle(2.5)  # ~0 degrees
+    servo.ChangeDutyCycle(2.5)
     time.sleep(1)
     servo.ChangeDutyCycle(0)
 
@@ -154,13 +154,12 @@ while True:
             print("Prediction Error:", e)
             continue
 
-        # ✅ NEW: Show "Door is Open" message after face match
+        # ✅ Face recognized ➝ Show message and unlock
         lcd_clear()
         lcd_display("Door is Open", LINE_1)
         lcd_display("Welcome", LINE_2)
         speak("Door is open, welcome")
 
-        # ✅ Unlock door for 10 seconds after face match
         unlock_door()
         time.sleep(10)
         lock_door()
@@ -208,6 +207,7 @@ while True:
 
     cv2.imshow("Frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
+        lcd_clear()  # ✅ Blank display when 'q' is pressed
         break
 
 # --- Cleanup ---
