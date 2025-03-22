@@ -164,9 +164,11 @@ while True:
         unlock_door()
         time.sleep(10)
         lock_door()
-
+        
+        # After door closes from face unlock
         lcd_clear()
-        lcd_display("Put RFID Card", LINE_1)
+        lcd_display("HI", LINE_1)
+        lcd_display("Put RFID Card", LINE_2)
         speak("Put your RFID Card")
 
         try:
