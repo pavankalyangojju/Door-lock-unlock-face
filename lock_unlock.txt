@@ -65,9 +65,10 @@ def lcd_clear():
     lcd_display("", LINE_1)
     lcd_display("", LINE_2)
 
+# --- LCD STARTUP MESSAGE ---
 lcd_init()
-lcd_display("HI,Welcome to", LINE_1)
-lcd_display("Access System", LINE_2)
+lcd_display("Hi, welcome", LINE_1)
+lcd_display("Door Lock Unlock", LINE_2)
 time.sleep(3)
 lcd_clear()
 
@@ -79,7 +80,7 @@ def speak(text):
     engine.say(text)
     engine.runAndWait()
 
-# --- Servo Control (Reliable 180° ↔ 0°) ---
+# --- Servo Control ---
 def unlock_door():
     print("Servo: Unlocking (180°)")
     servo.ChangeDutyCycle(12.0)
@@ -154,7 +155,7 @@ while True:
             print("Prediction Error:", e)
             continue
 
-        # ✅ Face recognized ➝ Show message and unlock
+        # ✅ Face recognized ➝ Show welcome message
         lcd_clear()
         lcd_display("Door is Open", LINE_1)
         lcd_display("Welcome", LINE_2)
@@ -194,7 +195,6 @@ while True:
             time.sleep(3)
             continue
 
-        # ✅ Unlock again for 5 seconds after card match
         unlock_door()
         time.sleep(5)
         lock_door()
@@ -207,7 +207,7 @@ while True:
 
     cv2.imshow("Frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
-        lcd_clear()  # ✅ Blank display when 'q' is pressed
+        lcd_clear()  # ✅ Blank display on exit
         break
 
 # --- Cleanup ---
