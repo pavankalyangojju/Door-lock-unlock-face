@@ -17,7 +17,7 @@ SERVO_PIN = 18
 GPIO.setup(BUZZER_PIN, GPIO.OUT)
 GPIO.output(BUZZER_PIN, GPIO.LOW)
 GPIO.setup(SERVO_PIN, GPIO.OUT)
-servo = GPIO.PWM(SERVO_PIN, 50)
+servo = GPIO.PWM(SERVO_PIN, 50)  # 50Hz for standard servos
 servo.start(0)
 
 # --- LCD SETUP ---
@@ -76,16 +76,15 @@ def speak(text):
     engine.say(text)
     engine.runAndWait()
 
+# --- Servo Control (Direct Movement) ---
 def unlock_door():
-    for duty in range(3, 13):
-        servo.ChangeDutyCycle(duty)
-        time.sleep(0.05)
+    servo.ChangeDutyCycle(7.5)  # ~180 degrees
     time.sleep(0.5)
+    servo.ChangeDutyCycle(0)
 
 def lock_door():
-    for duty in range(12, 2, -1):
-        servo.ChangeDutyCycle(duty)
-        time.sleep(0.05)
+    servo.ChangeDutyCycle(2.5)  # ~0 degrees
+    time.sleep(0.5)
     servo.ChangeDutyCycle(0)
 
 def buzzer_and_lcd_message(name):
