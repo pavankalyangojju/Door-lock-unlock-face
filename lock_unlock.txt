@@ -2,7 +2,6 @@
 import cv2
 import pickle
 import numpy as np
-import os
 import time
 import pyttsx3
 import RPi.GPIO as GPIO
@@ -76,10 +75,10 @@ def lcd_clear():
     lcd_display("", LINE_1)
     lcd_display("", LINE_2)
 
-# --- LCD STARTUP MESSAGE ---
+# --- LCD STARTUP ---
 lcd_init()
 lcd_display("Hi, welcome", LINE_1)
-lcd_display("Door Lock Unlock", LINE_2)
+lcd_display("Door Access Sys", LINE_2)
 time.sleep(3)
 lcd_clear()
 
@@ -104,25 +103,69 @@ def lock_door():
     time.sleep(1)
     servo.ChangeDutyCycle(0)
 
-def buzzer_and_lcd_message(name):
-    for _ in range(2):
-        GPIO.output(BUZZER_PIN, GPIO.HIGH)
-        time.sleep(1)
-        GPIO.output(BUZZER_PIN, GPIO.LOW)
-        time.sleep(0.5)
-    lcd_clear()
-    lcd_display("Access Granted", LINE_1)
-    lcd_display(f"Welcome {name}", LINE_2)
-    speak(f"Access granted, welcome {name}")
-    time.sleep(3)
-    lcd_clear()
+# --- Telegram Bot ---
+TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
+
+def led_on(update, context):
+    GPIO.output(LED_PIN, GPIO.HIGH)
+    update.message.reply_text("LED ON")
+
+def led_off(update, context):
+    GPIO.output(LED_PIN, GPIO.LOW)
+    update.message.reply_text("LED OFF")
+
+def fan_on(update, context):
+    GPIO.output(FAN_PIN, GPIO.HIGH)
+    update.message.reply_text("Fan ON")
+
+def fan_off(update, context):
+    GPIO.output(FAN_PIN, GPIO.LOW)
+    update.message.reply_text("Fan OFF")
+
+def start_bot():
+    updater = Updater(TELEGRAM_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("led_on", led_on))
+    dp.add_handler(CommandHandler("led_off", led_off))
+    dp.add_handler(CommandHandler("fan_on", fan_on))
+    dp.add_handler(CommandHandler("fan_off", fan_off))
+    updater.start_polling()
+
+bot_thread = threading.Thread(target=start_bot)
+bot_thread.daemon = True
+bot_thread.start()
+
+# --- RFID EXIT MODE ---
+def rfid_exit_mode():
+    while True:
+        try:
+            card_id, card_text = reader.read()
+            if card_id in RFID_LIST:
+                user_index = RFID_LIST.index(card_id)
+                name = LABELS[user_index]
+
+                lcd_clear()
+                lcd_display("Exit Granted", LINE_1)
+                lcd_display(f"Bye {name}", LINE_2)
+                speak(f"Goodbye {name}")
+                GPIO.output(LED_PIN, GPIO.HIGH)
+                GPIO.output(FAN_PIN, GPIO.HIGH)
+                unlock_door()
+                time.sleep(5)
+                lock_door()
+                lcd_clear()
+                lcd_display("Door Closed", LINE_1)
+                time.sleep(2)
+        except Exception as e:
+            print("RFID Exit Error:", e)
+
+# --- Start RFID Exit Thread ---
+exit_thread = threading.Thread(target=rfid_exit_mode)
+exit_thread.daemon = True
+exit_thread.start()
 
 # --- Load Face Data ---
 video = cv2.VideoCapture(0)
-if not video.isOpened():
-    print("Error: Camera not found.")
-    exit()
-
 facedetect = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 try:
@@ -140,47 +183,15 @@ FACES = np.array(FACES).reshape(FACES.shape[0], -1)
 knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
-# --- Telegram Bot Setup ---
-TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
-
-def led_on(update, context):
-    GPIO.output(LED_PIN, GPIO.HIGH)
-    update.message.reply_text("LED turned ON")
-
-def led_off(update, context):
-    GPIO.output(LED_PIN, GPIO.LOW)
-    update.message.reply_text("LED turned OFF")
-
-def fan_on(update, context):
-    GPIO.output(FAN_PIN, GPIO.HIGH)
-    update.message.reply_text("Fan turned ON")
-
-def fan_off(update, context):
-    GPIO.output(FAN_PIN, GPIO.LOW)
-    update.message.reply_text("Fan turned OFF")
-
-def start_bot():
-    updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("led_on", led_on))
-    dp.add_handler(CommandHandler("led_off", led_off))
-    dp.add_handler(CommandHandler("fan_on", fan_on))
-    dp.add_handler(CommandHandler("fan_off", fan_off))
-    updater.start_polling()
-
-bot_thread = threading.Thread(target=start_bot)
-bot_thread.daemon = True
-bot_thread.start()
-
-# --- MAIN LOOP ---
+# --- FACE ENTRY LOOP ---
 while True:
     lcd_clear()
-    lcd_display("Put Face in Front", LINE_1)
-    lcd_display("of Camera", LINE_2)
+    lcd_display("Show Your Face", LINE_1)
+    lcd_display("To the Camera", LINE_2)
 
     ret, frame = video.read()
     if not ret:
-        print("Error: Frame not captured.")
+        print("Camera error")
         break
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -193,16 +204,16 @@ while True:
         try:
             output = knn.predict(resized_img)
             recognized_name = output[0]
-            print("Recognized:", recognized_name)
+            print("Face Recognized:", recognized_name)
         except Exception as e:
-            print("Prediction Error:", e)
+            print("Face Prediction Error:", e)
             continue
 
-        # Face recognized → show welcome, turn ON LED & Fan
+        # Welcome & Entry
         lcd_clear()
         lcd_display("Door is Open", LINE_1)
-        lcd_display("Welcome", LINE_2)
-        speak("Door is open, welcome")
+        lcd_display(f"Hi {recognized_name}", LINE_2)
+        speak(f"Welcome {recognized_name}, door is open")
         GPIO.output(LED_PIN, GPIO.HIGH)
         GPIO.output(FAN_PIN, GPIO.HIGH)
 
@@ -211,51 +222,12 @@ while True:
         lock_door()
 
         lcd_clear()
-        lcd_display("Show RFID Card", LINE_1)
-        speak("Please show your RFID card")
+        lcd_display("Door is Closed", LINE_1)
+        speak("Door is closed")
+        time.sleep(3)
+        break
 
-        try:
-            card_id, card_text = reader.read()
-            print("RFID:", card_id)
-
-            try:
-                user_index = LABELS.index(recognized_name)
-                expected_rfid = RFID_LIST[user_index]
-
-                if str(card_id) != str(expected_rfid):
-                    lcd_clear()
-                    lcd_display("Card doesn't match", LINE_1)
-                    lcd_display("Try again", LINE_2)
-                    speak("RFID does not match the recognized person")
-                    time.sleep(3)
-                    continue
-
-            except ValueError:
-                lcd_clear()
-                lcd_display("Unknown Person", LINE_1)
-                lcd_display("Access Denied", LINE_2)
-                speak("Access denied")
-                time.sleep(3)
-                continue
-
-            unlock_door()
-            time.sleep(5)
-            lock_door()
-
-            buzzer_and_lcd_message(recognized_name)
-
-            video.release()
-            time.sleep(5)
-            video = cv2.VideoCapture(0)
-
-        except Exception as e:
-            lcd_clear()
-            lcd_display("RFID Error!", LINE_1)
-            print(f"RFID Error: {e}")
-            time.sleep(2)
-            continue
-
-    cv2.imshow("Frame", frame)
+    cv2.imshow("Camera", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         lcd_clear()
         break
