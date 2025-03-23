@@ -7,18 +7,26 @@ import time
 import pyttsx3
 import RPi.GPIO as GPIO
 import smbus2
+import threading
 from mfrc522 import SimpleMFRC522
 from sklearn.neighbors import KNeighborsClassifier
+from telegram.ext import Updater, CommandHandler
 
 # --- GPIO SETUP ---
 GPIO.setmode(GPIO.BCM)
 BUZZER_PIN = 17
 SERVO_PIN = 26
+LED_PIN = 18
+
 GPIO.setup(BUZZER_PIN, GPIO.OUT)
 GPIO.output(BUZZER_PIN, GPIO.LOW)
+
 GPIO.setup(SERVO_PIN, GPIO.OUT)
 servo = GPIO.PWM(SERVO_PIN, 50)  # 50Hz for standard servos
 servo.start(0)
+
+GPIO.setup(LED_PIN, GPIO.OUT)
+GPIO.output(LED_PIN, GPIO.LOW)
 
 # --- LCD SETUP ---
 LCD_ADDRESS = 0x27
@@ -129,6 +137,30 @@ FACES = np.array(FACES).reshape(FACES.shape[0], -1)
 knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
+# --- Telegram Bot Setup ---
+TELEGRAM_TOKEN = 'YOUR_BOT_TOKEN'  # 🔁 Replace with your Telegram Bot Token
+
+def led_on(update, context):
+    GPIO.output(LED_PIN, GPIO.HIGH)
+    update.message.reply_text("LED turned ON")
+
+def led_off(update, context):
+    GPIO.output(LED_PIN, GPIO.LOW)
+    update.message.reply_text("LED turned OFF")
+
+def start_bot():
+    updater = Updater(TELEGRAM_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("led_on", led_on))
+    dp.add_handler(CommandHandler("led_off", led_off))
+    updater.start_polling()
+    updater.idle()
+
+# Start Telegram bot thread
+bot_thread = threading.Thread(target=start_bot)
+bot_thread.daemon = True
+bot_thread.start()
+
 # --- MAIN LOOP ---
 while True:
     lcd_clear()
@@ -155,11 +187,12 @@ while True:
             print("Prediction Error:", e)
             continue
 
-        # ✅ Face recognized ➝ Show welcome message
+        # ✅ Face recognized ⟶ Show welcome message and turn ON LED
         lcd_clear()
         lcd_display("Door is Open", LINE_1)
         lcd_display("Welcome", LINE_2)
         speak("Door is open, welcome")
+        GPIO.output(LED_PIN, GPIO.HIGH)  # Turn on LED
 
         unlock_door()
         time.sleep(10)
@@ -167,7 +200,7 @@ while True:
         
         # After door closes from face unlock
         lcd_clear()
-        lcd_display("HI", LINE_1)
+        lcd_display("Open DOOR", LINE_1)
         lcd_display("Put RFID Card", LINE_2)
         speak("Put your RFID Card")
 
@@ -209,7 +242,7 @@ while True:
 
     cv2.imshow("Frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
-        lcd_clear()  # ✅ Blank display on exit
+        lcd_clear()
         break
 
 # --- Cleanup ---
