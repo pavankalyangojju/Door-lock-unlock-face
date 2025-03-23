@@ -17,16 +17,19 @@ GPIO.setmode(GPIO.BCM)
 BUZZER_PIN = 17
 SERVO_PIN = 26
 LED_PIN = 18
+FAN_PIN = 23  # Fan relay control pin
 
 GPIO.setup(BUZZER_PIN, GPIO.OUT)
-GPIO.output(BUZZER_PIN, GPIO.LOW)
-
 GPIO.setup(SERVO_PIN, GPIO.OUT)
+GPIO.setup(LED_PIN, GPIO.OUT)
+GPIO.setup(FAN_PIN, GPIO.OUT)
+
+GPIO.output(BUZZER_PIN, GPIO.LOW)
+GPIO.output(LED_PIN, GPIO.LOW)
+GPIO.output(FAN_PIN, GPIO.LOW)
+
 servo = GPIO.PWM(SERVO_PIN, 50)
 servo.start(0)
-
-GPIO.setup(LED_PIN, GPIO.OUT)
-GPIO.output(LED_PIN, GPIO.LOW)
 
 # --- LCD SETUP ---
 LCD_ADDRESS = 0x27
@@ -138,7 +141,7 @@ knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
 # --- Telegram Bot Setup ---
-TELEGRAM_TOKEN = 'YOUR_BOT_TOKEN'  # ⬅️ Replace this with your actual bot token
+TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
 
 def led_on(update, context):
     GPIO.output(LED_PIN, GPIO.HIGH)
@@ -148,12 +151,22 @@ def led_off(update, context):
     GPIO.output(LED_PIN, GPIO.LOW)
     update.message.reply_text("LED turned OFF")
 
+def fan_on(update, context):
+    GPIO.output(FAN_PIN, GPIO.HIGH)
+    update.message.reply_text("Fan turned ON")
+
+def fan_off(update, context):
+    GPIO.output(FAN_PIN, GPIO.LOW)
+    update.message.reply_text("Fan turned OFF")
+
 def start_bot():
     updater = Updater(TELEGRAM_TOKEN, use_context=True)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("led_on", led_on))
     dp.add_handler(CommandHandler("led_off", led_off))
-    updater.start_polling()  # ✅ Removed idle()
+    dp.add_handler(CommandHandler("fan_on", fan_on))
+    dp.add_handler(CommandHandler("fan_off", fan_off))
+    updater.start_polling()
 
 # Start Telegram bot thread
 bot_thread = threading.Thread(target=start_bot)
@@ -186,18 +199,18 @@ while True:
             print("Prediction Error:", e)
             continue
 
-        # ✅ Face recognized ⟶ Show welcome message and turn ON LED
+        # ✅ Face recognized ⟶ Show welcome message, turn ON LED & Fan
         lcd_clear()
         lcd_display("Door is Open", LINE_1)
         lcd_display("Welcome", LINE_2)
         speak("Door is open, welcome")
-        GPIO.output(LED_PIN, GPIO.HIGH)  # Turn on LED
+        GPIO.output(LED_PIN, GPIO.HIGH)
+        GPIO.output(FAN_PIN, GPIO.HIGH)
 
         unlock_door()
         time.sleep(10)
         lock_door()
         
-        # After door closes from face unlock
         lcd_clear()
         lcd_display("Open DOOR", LINE_1)
         lcd_display("Put RFID Card", LINE_2)
