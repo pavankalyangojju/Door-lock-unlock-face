@@ -22,7 +22,7 @@ GPIO.setup(BUZZER_PIN, GPIO.OUT)
 GPIO.output(BUZZER_PIN, GPIO.LOW)
 
 GPIO.setup(SERVO_PIN, GPIO.OUT)
-servo = GPIO.PWM(SERVO_PIN, 50)  # 50Hz for standard servos
+servo = GPIO.PWM(SERVO_PIN, 50)
 servo.start(0)
 
 GPIO.setup(LED_PIN, GPIO.OUT)
@@ -138,7 +138,7 @@ knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
 # --- Telegram Bot Setup ---
-TELEGRAM_TOKEN = 'YOUR_BOT_TOKEN'  # 🔁 Replace with your Telegram Bot Token
+TELEGRAM_TOKEN = 'YOUR_BOT_TOKEN'  # ⬅️ Replace this with your actual bot token
 
 def led_on(update, context):
     GPIO.output(LED_PIN, GPIO.HIGH)
@@ -153,8 +153,7 @@ def start_bot():
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("led_on", led_on))
     dp.add_handler(CommandHandler("led_off", led_off))
-    updater.start_polling()
-    updater.idle()
+    updater.start_polling()  # ✅ Removed idle()
 
 # Start Telegram bot thread
 bot_thread = threading.Thread(target=start_bot)
