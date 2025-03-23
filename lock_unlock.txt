@@ -17,7 +17,7 @@ GPIO.setmode(GPIO.BCM)
 BUZZER_PIN = 17
 SERVO_PIN = 26
 LED_PIN = 18
-FAN_PIN = 23
+FAN_PIN = 23  # Fan relay control pin
 
 GPIO.setup(BUZZER_PIN, GPIO.OUT)
 GPIO.setup(SERVO_PIN, GPIO.OUT)
@@ -104,7 +104,43 @@ def lock_door():
     time.sleep(1)
     servo.ChangeDutyCycle(0)
 
-# --- Telegram Bot ---
+def buzzer_and_lcd_message(name):
+    for _ in range(2):
+        GPIO.output(BUZZER_PIN, GPIO.HIGH)
+        time.sleep(1)
+        GPIO.output(BUZZER_PIN, GPIO.LOW)
+        time.sleep(0.5)
+    lcd_clear()
+    lcd_display("Access Granted", LINE_1)
+    lcd_display(f"Welcome {name}", LINE_2)
+    speak(f"Access granted, welcome {name}")
+    time.sleep(3)
+    lcd_clear()
+
+# --- Load Face Data ---
+video = cv2.VideoCapture(0)
+if not video.isOpened():
+    print("Error: Camera not found.")
+    exit()
+
+facedetect = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+try:
+    with open('data/names.pkl', 'rb') as w:
+        LABELS = pickle.load(w)
+    with open('data/faces_data.pkl', 'rb') as f:
+        FACES = pickle.load(f)
+    with open('data/rfid_data.pkl', 'rb') as r:
+        RFID_LIST = pickle.load(r)
+except Exception as e:
+    print("Error loading data:", e)
+    exit()
+
+FACES = np.array(FACES).reshape(FACES.shape[0], -1)
+knn = KNeighborsClassifier(n_neighbors=5)
+knn.fit(FACES, LABELS)
+
+# --- Telegram Bot Setup ---
 TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
 
 def led_on(update, context):
@@ -132,28 +168,10 @@ def start_bot():
     dp.add_handler(CommandHandler("fan_off", fan_off))
     updater.start_polling()
 
+# Start Telegram bot thread
 bot_thread = threading.Thread(target=start_bot)
 bot_thread.daemon = True
 bot_thread.start()
-
-# --- Load Face & RFID Data ---
-video = cv2.VideoCapture(0)
-facedetect = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-
-try:
-    with open('data/names.pkl', 'rb') as w:
-        LABELS = pickle.load(w)
-    with open('data/faces_data.pkl', 'rb') as f:
-        FACES = pickle.load(f)
-    with open('data/rfid_data.pkl', 'rb') as r:
-        RFID_LIST = pickle.load(r)
-except Exception as e:
-    print("Data load error:", e)
-    exit()
-
-FACES = np.array(FACES).reshape(FACES.shape[0], -1)
-knn = KNeighborsClassifier(n_neighbors=5)
-knn.fit(FACES, LABELS)
 
 # --- MAIN LOOP ---
 while True:
@@ -163,13 +181,12 @@ while True:
 
     ret, frame = video.read()
     if not ret:
-        print("Camera error")
+        print("Error: Frame not captured.")
         break
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = facedetect.detectMultiScale(gray, 1.3, 5)
 
-    person_recognized = False
     for (x, y, w, h) in faces:
         crop_img = frame[y:y+h, x:x+w]
         resized_img = cv2.resize(crop_img, (50, 50)).flatten().reshape(1, -1)
@@ -178,11 +195,11 @@ while True:
             output = knn.predict(resized_img)
             recognized_name = output[0]
             print("Recognized:", recognized_name)
-            person_recognized = True
         except Exception as e:
-            print("Prediction error:", e)
+            print("Prediction Error:", e)
             continue
 
+        # ✅ Face recognized ⟶ Show welcome message, turn ON LED & Fan
         lcd_clear()
         lcd_display("Door is Open", LINE_1)
         lcd_display("Welcome", LINE_2)
@@ -193,56 +210,47 @@ while True:
         unlock_door()
         time.sleep(10)
         lock_door()
-
+        
         lcd_clear()
-        lcd_display("Door is Closed", LINE_1)
-        speak("Door is closed")
-        time.sleep(2)
+        lcd_display("Open DOOR", LINE_1)
+        lcd_display("Put RFID Card", LINE_2)
+        speak("Put your RFID Card")
 
-        lcd_clear()
-        lcd_display("Next in 5 Sec", LINE_1)
-        time.sleep(5)
-        video.release()
-        video = cv2.VideoCapture(0)
-        break
-
-    if not person_recognized:
-        lcd_clear()
-        lcd_display("Or Tap Your", LINE_1)
-        lcd_display("RFID Card", LINE_2)
-        speak("Or tap your RFID card")
         try:
             card_id, card_text = reader.read()
-            print("RFID:", card_id)
-
-            if card_id in RFID_LIST:
-                user_index = RFID_LIST.index(card_id)
-                user_name = LABELS[user_index]
-
-                lcd_clear()
-                lcd_display("RFID Access", LINE_1)
-                lcd_display("Granted", LINE_2)
-                speak(f"Welcome {user_name}")
-                GPIO.output(LED_PIN, GPIO.HIGH)
-                GPIO.output(FAN_PIN, GPIO.HIGH)
-
-                unlock_door()
-                time.sleep(10)
-                lock_door()
-
-                lcd_clear()
-                lcd_display("Door is Closed", LINE_1)
-                speak("Door is closed")
-                time.sleep(2)
-
-                lcd_clear()
-                lcd_display("Next in 5 Sec", LINE_1)
-                time.sleep(5)
-                video.release()
-                video = cv2.VideoCapture(0)
-
+            if not card_id:
+                raise ValueError("No RFID card detected!")
         except Exception as e:
-            print("RFID error:", e)
+            lcd_clear()
+            lcd_display("RFID Read Error!", LINE_1)
+            lcd_display("Try Again", LINE_2)
+            print(f"RFID Error: {e}")
+            time.sleep(2)
+            continue
+
+        if recognized_name not in LABELS:
+            lcd_clear()
+            lcd_display("Unknown Face", LINE_1)
+            lcd_display("Try Again", LINE_2)
+            continue
+
+        expected_rfid = RFID_LIST[LABELS.index(recognized_name)]
+        if str(card_id) != str(expected_rfid):
+            lcd_clear()
+            lcd_display("Put Correct Card", LINE_1)
+            speak("Please put correct card")
+            time.sleep(3)
+            continue
+
+        unlock_door()
+        time.sleep(5)
+        lock_door()
+
+        buzzer_and_lcd_message(recognized_name)
+
+        video.release()
+        time.sleep(5)
+        video = cv2.VideoCapture(0)
 
     cv2.imshow("Frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
