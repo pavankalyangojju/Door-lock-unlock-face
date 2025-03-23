@@ -211,21 +211,31 @@ while True:
 
         # Welcome & Entry
         lcd_clear()
-        lcd_display("Door is Open", LINE_1)
-        lcd_display(f"Hi {recognized_name}", LINE_2)
+        lcd_display(f"Hi {recognized_name}", LINE_1)
+        lcd_display("Door is Open", LINE_2)
         speak(f"Welcome {recognized_name}, door is open")
         GPIO.output(LED_PIN, GPIO.HIGH)
         GPIO.output(FAN_PIN, GPIO.HIGH)
 
         unlock_door()
-        time.sleep(10)
+        time.sleep(5)
         lock_door()
 
         lcd_clear()
         lcd_display("Door is Closed", LINE_1)
         speak("Door is closed")
-        time.sleep(3)
-        break
+        time.sleep(2)
+
+        # Pause and suggest exit card tap
+        video.release()
+        lcd_clear()
+        lcd_display("You want to go out", LINE_1)
+        lcd_display("Put card", LINE_2)
+        speak("If you want to go out, please tap your card")
+        time.sleep(5)
+
+        video = cv2.VideoCapture(0)
+        break  # back to face scan
 
     cv2.imshow("Camera", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
