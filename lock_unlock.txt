@@ -16,8 +16,8 @@ from telegram.ext import Updater, CommandHandler
 GPIO.setmode(GPIO.BCM)
 BUZZER_PIN = 17
 SERVO_PIN = 26
-LED_PIN = 18
-FAN_PIN = 23  # Fan relay control pin
+LED_PIN = 19
+FAN_PIN = 13
 
 GPIO.setup(BUZZER_PIN, GPIO.OUT)
 GPIO.setup(SERVO_PIN, GPIO.OUT)
@@ -168,7 +168,6 @@ def start_bot():
     dp.add_handler(CommandHandler("fan_off", fan_off))
     updater.start_polling()
 
-# Start Telegram bot thread
 bot_thread = threading.Thread(target=start_bot)
 bot_thread.daemon = True
 bot_thread.start()
@@ -199,7 +198,7 @@ while True:
             print("Prediction Error:", e)
             continue
 
-        # ✅ Face recognized ⟶ Show welcome message, turn ON LED & Fan
+        # Face recognized → show welcome, turn ON LED & Fan
         lcd_clear()
         lcd_display("Door is Open", LINE_1)
         lcd_display("Welcome", LINE_2)
@@ -210,47 +209,51 @@ while True:
         unlock_door()
         time.sleep(10)
         lock_door()
-        
+
         lcd_clear()
-        lcd_display("Open DOOR", LINE_1)
-        lcd_display("Put RFID Card", LINE_2)
-        speak("Put your RFID Card")
+        lcd_display("Show RFID Card", LINE_1)
+        speak("Please show your RFID card")
 
         try:
             card_id, card_text = reader.read()
-            if not card_id:
-                raise ValueError("No RFID card detected!")
+            print("RFID:", card_id)
+
+            try:
+                user_index = LABELS.index(recognized_name)
+                expected_rfid = RFID_LIST[user_index]
+
+                if str(card_id) != str(expected_rfid):
+                    lcd_clear()
+                    lcd_display("Card doesn't match", LINE_1)
+                    lcd_display("Try again", LINE_2)
+                    speak("RFID does not match the recognized person")
+                    time.sleep(3)
+                    continue
+
+            except ValueError:
+                lcd_clear()
+                lcd_display("Unknown Person", LINE_1)
+                lcd_display("Access Denied", LINE_2)
+                speak("Access denied")
+                time.sleep(3)
+                continue
+
+            unlock_door()
+            time.sleep(5)
+            lock_door()
+
+            buzzer_and_lcd_message(recognized_name)
+
+            video.release()
+            time.sleep(5)
+            video = cv2.VideoCapture(0)
+
         except Exception as e:
             lcd_clear()
-            lcd_display("RFID Read Error!", LINE_1)
-            lcd_display("Try Again", LINE_2)
+            lcd_display("RFID Error!", LINE_1)
             print(f"RFID Error: {e}")
             time.sleep(2)
             continue
-
-        if recognized_name not in LABELS:
-            lcd_clear()
-            lcd_display("Unknown Face", LINE_1)
-            lcd_display("Try Again", LINE_2)
-            continue
-
-        expected_rfid = RFID_LIST[LABELS.index(recognized_name)]
-        if str(card_id) != str(expected_rfid):
-            lcd_clear()
-            lcd_display("Put Correct Card", LINE_1)
-            speak("Please put correct card")
-            time.sleep(3)
-            continue
-
-        unlock_door()
-        time.sleep(5)
-        lock_door()
-
-        buzzer_and_lcd_message(recognized_name)
-
-        video.release()
-        time.sleep(5)
-        video = cv2.VideoCapture(0)
 
     cv2.imshow("Frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
