@@ -5,13 +5,23 @@ import numpy as np
 import time
 import pyttsx3
 import RPi.GPIO as GPIO
-import smbus2
 import threading
 from mfrc522 import SimpleMFRC522
+from RPLCD.i2c import CharLCD
 from sklearn.neighbors import KNeighborsClassifier
 from telegram.ext import Updater, CommandHandler
 
+# --- LCD SETUP ---
+lcd = CharLCD(i2c_expander='PCF8574', address=0x27, port=1, cols=16, rows=2, dotsize=8)
+lcd.clear()
+lcd.write_string("Hi, welcome")
+lcd.crlf()
+lcd.write_string("Door Access Sys")
+time.sleep(3)
+lcd.clear()
+
 # --- GPIO SETUP ---
+GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
 BUZZER_PIN = 17
 SERVO_PIN = 26
@@ -30,59 +40,7 @@ GPIO.output(FAN_PIN, GPIO.LOW)
 servo = GPIO.PWM(SERVO_PIN, 50)
 servo.start(0)
 
-# --- LCD SETUP ---
-LCD_ADDRESS = 0x27
-LCD_WIDTH = 16
-LCD_CHR = 1
-LCD_CMD = 0
-LINE_1 = 0x80
-LINE_2 = 0xC0
-LCD_BACKLIGHT = 0x08
-ENABLE = 0b00000100
-bus = smbus2.SMBus(1)
-
-def lcd_byte(bits, mode):
-    high_bits = mode | (bits & 0xF0) | LCD_BACKLIGHT
-    low_bits = mode | ((bits << 4) & 0xF0) | LCD_BACKLIGHT
-    bus.write_byte(LCD_ADDRESS, high_bits)
-    lcd_toggle_enable(high_bits)
-    bus.write_byte(LCD_ADDRESS, low_bits)
-    lcd_toggle_enable(low_bits)
-
-def lcd_toggle_enable(bits):
-    time.sleep(0.0005)
-    bus.write_byte(LCD_ADDRESS, bits | ENABLE)
-    time.sleep(0.0005)
-    bus.write_byte(LCD_ADDRESS, bits & ~ENABLE)
-    time.sleep(0.0005)
-
-def lcd_init():
-    lcd_byte(0x33, LCD_CMD)
-    lcd_byte(0x32, LCD_CMD)
-    lcd_byte(0x06, LCD_CMD)
-    lcd_byte(0x0C, LCD_CMD)
-    lcd_byte(0x28, LCD_CMD)
-    lcd_byte(0x01, LCD_CMD)
-    time.sleep(0.005)
-
-def lcd_display(message, line):
-    lcd_byte(line, LCD_CMD)
-    message = message.ljust(LCD_WIDTH, " ")
-    for char in message:
-        lcd_byte(ord(char), LCD_CHR)
-
-def lcd_clear():
-    lcd_display("", LINE_1)
-    lcd_display("", LINE_2)
-
-# --- LCD STARTUP ---
-lcd_init()
-lcd_display("Hi, welcome", LINE_1)
-lcd_display("Door Access Sys", LINE_2)
-time.sleep(3)
-lcd_clear()
-
-# --- Other Modules ---
+# --- Voice Engine ---
 engine = pyttsx3.init()
 reader = SimpleMFRC522()
 
@@ -92,18 +50,18 @@ def speak(text):
 
 # --- Servo Control ---
 def unlock_door():
-    print("Servo: Unlocking (180°)")
+    print("Unlocking Door")
     servo.ChangeDutyCycle(12.0)
     time.sleep(1)
     servo.ChangeDutyCycle(0)
 
 def lock_door():
-    print("Servo: Locking (0°)")
+    print("Locking Door")
     servo.ChangeDutyCycle(2.5)
     time.sleep(1)
     servo.ChangeDutyCycle(0)
 
-# --- Telegram Bot ---
+# --- Telegram Bot (Optional Switch Control) ---
 TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
 
 def led_on(update, context):
@@ -135,7 +93,7 @@ bot_thread = threading.Thread(target=start_bot)
 bot_thread.daemon = True
 bot_thread.start()
 
-# --- RFID EXIT MODE ---
+# --- RFID Exit Logic ---
 def rfid_exit_mode():
     while True:
         try:
@@ -143,51 +101,51 @@ def rfid_exit_mode():
             if card_id in RFID_LIST:
                 user_index = RFID_LIST.index(card_id)
                 name = LABELS[user_index]
-
-                lcd_clear()
-                lcd_display("Exit Granted", LINE_1)
-                lcd_display(f"Bye {name}", LINE_2)
+                lcd.clear()
+                lcd.write_string("Exit Granted")
+                lcd.crlf()
+                lcd.write_string(f"Bye {name}")
                 speak(f"Goodbye {name}")
                 GPIO.output(LED_PIN, GPIO.HIGH)
                 GPIO.output(FAN_PIN, GPIO.HIGH)
                 unlock_door()
                 time.sleep(5)
                 lock_door()
-                lcd_clear()
-                lcd_display("Door Closed", LINE_1)
+                lcd.clear()
+                lcd.write_string("Door Closed")
                 time.sleep(2)
         except Exception as e:
             print("RFID Exit Error:", e)
 
-# --- Start RFID Exit Thread ---
 exit_thread = threading.Thread(target=rfid_exit_mode)
 exit_thread.daemon = True
 exit_thread.start()
 
 # --- Load Face Data ---
-video = cv2.VideoCapture(0)
 facedetect = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+video = cv2.VideoCapture(0)
 
 try:
-    with open('data/names.pkl', 'rb') as w:
-        LABELS = pickle.load(w)
+    with open('data/names.pkl', 'rb') as f:
+        LABELS = pickle.load(f)
     with open('data/faces_data.pkl', 'rb') as f:
         FACES = pickle.load(f)
-    with open('data/rfid_data.pkl', 'rb') as r:
-        RFID_LIST = pickle.load(r)
+    with open('data/rfid_data.pkl', 'rb') as f:
+        RFID_LIST = pickle.load(f)
 except Exception as e:
-    print("Error loading data:", e)
+    print("Error loading face/RFID data:", e)
     exit()
 
-FACES = np.array(FACES).reshape(FACES.shape[0], -1)
+FACES = np.array(FACES).reshape(len(FACES), -1)
 knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
 # --- FACE ENTRY LOOP ---
 while True:
-    lcd_clear()
-    lcd_display("Show Your Face", LINE_1)
-    lcd_display("To the Camera", LINE_2)
+    lcd.clear()
+    lcd.write_string("Show Your Face")
+    lcd.crlf()
+    lcd.write_string("To the Camera")
 
     ret, frame = video.read()
     if not ret:
@@ -204,39 +162,36 @@ while True:
         try:
             predicted_name = knn.predict(resized_img)[0]
             if predicted_name in LABELS:
-                recognized_name = predicted_name
-                print("Face Recognized:", recognized_name)
-
-                lcd_clear()
-                lcd_display(f"Hi {recognized_name}", LINE_1)
-                lcd_display("Door is Open", LINE_2)
-                speak(f"Welcome {recognized_name}, door is open")
+                lcd.clear()
+                lcd.write_string(f"Hi {predicted_name}")
+                lcd.crlf()
+                lcd.write_string("Door is Open")
+                speak(f"Welcome {predicted_name}, door is open")
                 GPIO.output(LED_PIN, GPIO.HIGH)
                 GPIO.output(FAN_PIN, GPIO.HIGH)
-
                 unlock_door()
                 time.sleep(5)
                 lock_door()
-
-                lcd_clear()
-                lcd_display("Door is Closed", LINE_1)
+                lcd.clear()
+                lcd.write_string("Door Closed")
                 speak("Door is closed")
                 time.sleep(2)
 
+                # Prompt for exit
                 video.release()
-                lcd_clear()
-                lcd_display("You want to go out", LINE_1)
-                lcd_display("Put card", LINE_2)
+                lcd.clear()
+                lcd.write_string("Want to go out?")
+                lcd.crlf()
+                lcd.write_string("Tap your card")
                 speak("If you want to go out, please tap your card")
                 time.sleep(5)
-
                 video = cv2.VideoCapture(0)
                 break
             else:
-                print("Unauthorized person detected!")
-                lcd_clear()
-                lcd_display("Access Denied", LINE_1)
-                lcd_display("You don't have", LINE_2)
+                lcd.clear()
+                lcd.write_string("Access Denied")
+                lcd.crlf()
+                lcd.write_string("You don't have")
                 speak("You don't have access")
                 GPIO.output(BUZZER_PIN, GPIO.HIGH)
                 time.sleep(1)
@@ -249,7 +204,7 @@ while True:
 
     cv2.imshow("Camera", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
-        lcd_clear()
+        lcd.clear()
         break
 
 # --- Cleanup ---
