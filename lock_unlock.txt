@@ -61,7 +61,7 @@ def lock_door():
     time.sleep(1)
     servo.ChangeDutyCycle(0)
 
-# --- Telegram Bot (Optional Switch Control) ---
+# --- Telegram Bot (Optional) ---
 TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
 
 def led_on(update, context):
@@ -162,31 +162,60 @@ while True:
         try:
             predicted_name = knn.predict(resized_img)[0]
             if predicted_name in LABELS:
-                lcd.clear()
-                lcd.write_string(f"Hi {predicted_name}")
-                lcd.crlf()
-                lcd.write_string("Door is Open")
-                speak(f"Welcome {predicted_name}, door is open")
-                GPIO.output(LED_PIN, GPIO.HIGH)
-                GPIO.output(FAN_PIN, GPIO.HIGH)
-                unlock_door()
-                time.sleep(5)
-                lock_door()
-                lcd.clear()
-                lcd.write_string("Door Closed")
-                speak("Door is closed")
-                time.sleep(2)
+                user_index = LABELS.index(predicted_name)
 
-                # Prompt for exit
-                video.release()
+                # Prompt to tap RFID card
                 lcd.clear()
-                lcd.write_string("Want to go out?")
+                lcd.write_string("Face matched")
                 lcd.crlf()
                 lcd.write_string("Tap your card")
-                speak("If you want to go out, please tap your card")
-                time.sleep(5)
-                video = cv2.VideoCapture(0)
-                break
+                speak(f"{predicted_name}, tap your card to confirm")
+                time.sleep(2)
+
+                try:
+                    card_id, card_text = reader.read()
+                    if card_id == RFID_LIST[user_index]:
+                        lcd.clear()
+                        lcd.write_string(f"Hi {predicted_name}")
+                        lcd.crlf()
+                        lcd.write_string("Door is Open")
+                        speak(f"Welcome {predicted_name}, door is open")
+                        GPIO.output(LED_PIN, GPIO.HIGH)
+                        GPIO.output(FAN_PIN, GPIO.HIGH)
+                        unlock_door()
+                        time.sleep(5)
+                        lock_door()
+                        lcd.clear()
+                        lcd.write_string("Door Closed")
+                        speak("Door is closed")
+                        time.sleep(2)
+
+                        # Prompt for exit
+                        video.release()
+                        lcd.clear()
+                        lcd.write_string("Want to go out?")
+                        lcd.crlf()
+                        lcd.write_string("Tap your card")
+                        speak("If you want to go out, please tap your card")
+                        time.sleep(5)
+                        video = cv2.VideoCapture(0)
+                        break
+                    else:
+                        lcd.clear()
+                        lcd.write_string("Card Mismatch")
+                        lcd.crlf()
+                        lcd.write_string("Access Denied")
+                        speak("Card does not match the face. Access denied.")
+                        GPIO.output(BUZZER_PIN, GPIO.HIGH)
+                        time.sleep(1)
+                        GPIO.output(BUZZER_PIN, GPIO.LOW)
+                        time.sleep(2)
+                except Exception as e:
+                    print("RFID read error:", e)
+                    lcd.clear()
+                    lcd.write_string("RFID Error")
+                    speak("There was an error reading the card.")
+                    time.sleep(2)
             else:
                 lcd.clear()
                 lcd.write_string("Access Denied")
