@@ -93,9 +93,16 @@ bot_thread = threading.Thread(target=start_bot)
 bot_thread.daemon = True
 bot_thread.start()
 
+# --- Global flag for exit thread ---
+exit_thread_running = True
+
 # --- RFID Exit Logic ---
 def rfid_exit_mode():
+    global exit_thread_running
     while True:
+        if not exit_thread_running:
+            time.sleep(0.1)
+            continue
         try:
             card_id, card_text = reader.read()
             if card_id in RFID_LIST:
@@ -164,57 +171,63 @@ while True:
             if predicted_name in LABELS:
                 user_index = LABELS.index(predicted_name)
 
-                # Prompt to tap RFID card
                 lcd.clear()
                 lcd.write_string("Face matched")
                 lcd.crlf()
                 lcd.write_string("Tap your card")
                 speak(f"{predicted_name}, tap your card to confirm")
-                time.sleep(2)
+                time.sleep(1)
 
+                # Pause exit thread
+                exit_thread_running = False
                 try:
                     card_id, card_text = reader.read()
-                    if card_id == RFID_LIST[user_index]:
-                        lcd.clear()
-                        lcd.write_string(f"Hi {predicted_name}")
-                        lcd.crlf()
-                        lcd.write_string("Door is Open")
-                        speak(f"Welcome {predicted_name}, door is open")
-                        GPIO.output(LED_PIN, GPIO.HIGH)
-                        GPIO.output(FAN_PIN, GPIO.HIGH)
-                        unlock_door()
-                        time.sleep(5)
-                        lock_door()
-                        lcd.clear()
-                        lcd.write_string("Door Closed")
-                        speak("Door is closed")
-                        time.sleep(2)
-
-                        # Prompt for exit
-                        video.release()
-                        lcd.clear()
-                        lcd.write_string("Want to go out?")
-                        lcd.crlf()
-                        lcd.write_string("Tap your card")
-                        speak("If you want to go out, please tap your card")
-                        time.sleep(5)
-                        video = cv2.VideoCapture(0)
-                        break
-                    else:
-                        lcd.clear()
-                        lcd.write_string("Card Mismatch")
-                        lcd.crlf()
-                        lcd.write_string("Access Denied")
-                        speak("Card does not match the face. Access denied.")
-                        GPIO.output(BUZZER_PIN, GPIO.HIGH)
-                        time.sleep(1)
-                        GPIO.output(BUZZER_PIN, GPIO.LOW)
-                        time.sleep(2)
                 except Exception as e:
-                    print("RFID read error:", e)
                     lcd.clear()
                     lcd.write_string("RFID Error")
-                    speak("There was an error reading the card.")
+                    speak("Card read failed")
+                    print("RFID Error:", e)
+                    exit_thread_running = True
+                    continue
+
+                # Resume exit thread
+                exit_thread_running = True
+
+                if card_id == RFID_LIST[user_index]:
+                    lcd.clear()
+                    lcd.write_string(f"Hi {predicted_name}")
+                    lcd.crlf()
+                    lcd.write_string("Door is Open")
+                    speak(f"Welcome {predicted_name}, door is open")
+                    GPIO.output(LED_PIN, GPIO.HIGH)
+                    GPIO.output(FAN_PIN, GPIO.HIGH)
+                    unlock_door()
+                    time.sleep(5)
+                    lock_door()
+                    lcd.clear()
+                    lcd.write_string("Door Closed")
+                    speak("Door is closed")
+                    time.sleep(2)
+
+                    # Prompt for exit
+                    video.release()
+                    lcd.clear()
+                    lcd.write_string("Want to go out?")
+                    lcd.crlf()
+                    lcd.write_string("Tap your card")
+                    speak("If you want to go out, please tap your card")
+                    time.sleep(5)
+                    video = cv2.VideoCapture(0)
+                    break
+                else:
+                    lcd.clear()
+                    lcd.write_string("Card Mismatch")
+                    lcd.crlf()
+                    lcd.write_string("Access Denied")
+                    speak("Card does not match the face. Access denied.")
+                    GPIO.output(BUZZER_PIN, GPIO.HIGH)
+                    time.sleep(1)
+                    GPIO.output(BUZZER_PIN, GPIO.LOW)
                     time.sleep(2)
             else:
                 lcd.clear()
