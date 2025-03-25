@@ -10,6 +10,7 @@ import threading
 from mfrc522 import SimpleMFRC522
 from sklearn.neighbors import KNeighborsClassifier
 from telegram.ext import Updater, CommandHandler
+from telegram import Bot
 
 # --- GPIO SETUP ---
 GPIO.setmode(GPIO.BCM)
@@ -105,6 +106,9 @@ def lock_door():
 
 # --- Telegram Bot ---
 TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
+CHAT_ID = 123456789  # <-- Replace this with your actual chat ID
+
+bot = Bot(token=TELEGRAM_TOKEN)
 
 def led_on(update, context):
     GPIO.output(LED_PIN, GPIO.HIGH)
@@ -159,7 +163,6 @@ def rfid_exit_mode():
         except Exception as e:
             print("RFID Exit Error:", e)
 
-# --- Start RFID Exit Thread ---
 exit_thread = threading.Thread(target=rfid_exit_mode)
 exit_thread.daemon = True
 exit_thread.start()
@@ -205,11 +208,16 @@ while True:
             output = knn.predict(resized_img)
             recognized_name = output[0]
             print("Face Recognized:", recognized_name)
+
+            # Save and send face image to Telegram
+            cv2.imwrite("recognized.jpg", crop_img)
+            bot.send_photo(chat_id=CHAT_ID, photo=open("recognized.jpg", "rb"), caption=f"Face recognized: {recognized_name}")
+
         except Exception as e:
             print("Face Prediction Error:", e)
             continue
 
-        # Welcome & Entry
+        # Entry process
         lcd_clear()
         lcd_display(f"Hi {recognized_name}", LINE_1)
         lcd_display("Door is Open", LINE_2)
@@ -226,7 +234,7 @@ while True:
         speak("Door is closed")
         time.sleep(2)
 
-        # Pause and suggest exit card tap
+        # Exit prompt
         video.release()
         lcd_clear()
         lcd_display("You want to go out", LINE_1)
@@ -235,7 +243,7 @@ while True:
         time.sleep(5)
 
         video = cv2.VideoCapture(0)
-        break  # back to face scan
+        break
 
     cv2.imshow("Camera", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
