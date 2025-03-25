@@ -10,7 +10,6 @@ import threading
 from mfrc522 import SimpleMFRC522
 from sklearn.neighbors import KNeighborsClassifier
 from telegram.ext import Updater, CommandHandler
-from telegram import Bot
 
 # --- GPIO SETUP ---
 GPIO.setmode(GPIO.BCM)
@@ -106,9 +105,6 @@ def lock_door():
 
 # --- Telegram Bot ---
 TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
-CHAT_ID = 1367693706  # Replace with your actual chat ID
-
-bot = Bot(token=TELEGRAM_TOKEN)
 
 def led_on(update, context):
     GPIO.output(LED_PIN, GPIO.HIGH)
@@ -163,6 +159,7 @@ def rfid_exit_mode():
         except Exception as e:
             print("RFID Exit Error:", e)
 
+# --- Start RFID Exit Thread ---
 exit_thread = threading.Thread(target=rfid_exit_mode)
 exit_thread.daemon = True
 exit_thread.start()
@@ -172,7 +169,7 @@ video = cv2.VideoCapture(0)
 facedetect = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 try:
-    with open('data/names.pkl', 'rb') as w:
+    with open('data/names.pkl', ' 'rb') as w:
         LABELS = pickle.load(w)
     with open('data/faces_data.pkl', 'rb') as f:
         FACES = pickle.load(f)
@@ -187,6 +184,8 @@ knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
 # --- FACE ENTRY LOOP ---
+RECOGNITION_THRESHOLD = 5000  # Adjust for accuracy
+
 while True:
     lcd_clear()
     lcd_display("Show Your Face", LINE_1)
@@ -205,54 +204,50 @@ while True:
         resized_img = cv2.resize(crop_img, (50, 50)).flatten().reshape(1, -1)
 
         try:
-            distances, indices = knn.kneighbors(resized_img)
-            confidence = distances[0][0]
-            THRESHOLD = 100.0
+            distances, indices = knn.kneighbors(resized_img, n_neighbors=1)
+            if distances[0][0] < RECOGNITION_THRESHOLD:
+                recognized_name = knn.predict(resized_img)[0]
+                print("Face Recognized:", recognized_name)
 
-            if confidence > THRESHOLD:
-                print("Unknown face. Access denied.")
                 lcd_clear()
-                lcd_display("Unknown Face", LINE_1)
-                lcd_display("Access Denied", LINE_2)
-                speak("Access denied. Unknown face.")
+                lcd_display(f"Hi {recognized_name}", LINE_1)
+                lcd_display("Door is Open", LINE_2)
+                speak(f"Welcome {recognized_name}, door is open")
+                GPIO.output(LED_PIN, GPIO.HIGH)
+                GPIO.output(FAN_PIN, GPIO.HIGH)
+
+                unlock_door()
+                time.sleep(5)
+                lock_door()
+
+                lcd_clear()
+                lcd_display("Door is Closed", LINE_1)
+                speak("Door is closed")
                 time.sleep(2)
-                continue
 
-            recognized_name = knn.predict(resized_img)[0]
-            print("Face Recognized:", recognized_name)
+                video.release()
+                lcd_clear()
+                lcd_display("You want to go out", LINE_1)
+                lcd_display("Put card", LINE_2)
+                speak("If you want to go out, please tap your card")
+                time.sleep(5)
 
-            cv2.imwrite("recognized.jpg", crop_img)
-            bot.send_photo(chat_id=CHAT_ID, photo=open("recognized.jpg", "rb"), caption=f"Face recognized: {recognized_name}")
+                video = cv2.VideoCapture(0)
+                break
+            else:
+                print("Unrecognized face. Distance:", distances[0][0])
+                lcd_clear()
+                lcd_display("Access Denied", LINE_1)
+                lcd_display("No access for you", LINE_2)
+                speak("Access denied. No access for you")
+                GPIO.output(BUZZER_PIN, GPIO.HIGH)
+                time.sleep(1)
+                GPIO.output(BUZZER_PIN, GPIO.LOW)
+                time.sleep(2)
 
         except Exception as e:
             print("Face Prediction Error:", e)
             continue
-
-        lcd_clear()
-        lcd_display(f"Hi {recognized_name}", LINE_1)
-        lcd_display("Door is Open", LINE_2)
-        speak(f"Welcome {recognized_name}, door is open")
-        GPIO.output(LED_PIN, GPIO.HIGH)
-        GPIO.output(FAN_PIN, GPIO.HIGH)
-
-        unlock_door()
-        time.sleep(5)
-        lock_door()
-
-        lcd_clear()
-        lcd_display("Door is Closed", LINE_1)
-        speak("Door is closed")
-        time.sleep(2)
-
-        video.release()
-        lcd_clear()
-        lcd_display("You want to go out", LINE_1)
-        lcd_display("Put card", LINE_2)
-        speak("If you want to go out, please tap your card")
-        time.sleep(5)
-
-        video = cv2.VideoCapture(0)
-        break
 
     cv2.imshow("Camera", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
