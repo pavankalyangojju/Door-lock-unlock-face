@@ -106,7 +106,7 @@ def lock_door():
 
 # --- Telegram Bot ---
 TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
-CHAT_ID = 123456789  # <-- Replace this with your actual chat ID
+CHAT_ID = 1367693706  # Replace with your actual chat ID
 
 bot = Bot(token=TELEGRAM_TOKEN)
 
@@ -205,11 +205,22 @@ while True:
         resized_img = cv2.resize(crop_img, (50, 50)).flatten().reshape(1, -1)
 
         try:
-            output = knn.predict(resized_img)
-            recognized_name = output[0]
+            distances, indices = knn.kneighbors(resized_img)
+            confidence = distances[0][0]
+            THRESHOLD = 100.0
+
+            if confidence > THRESHOLD:
+                print("Unknown face. Access denied.")
+                lcd_clear()
+                lcd_display("Unknown Face", LINE_1)
+                lcd_display("Access Denied", LINE_2)
+                speak("Access denied. Unknown face.")
+                time.sleep(2)
+                continue
+
+            recognized_name = knn.predict(resized_img)[0]
             print("Face Recognized:", recognized_name)
 
-            # Save and send face image to Telegram
             cv2.imwrite("recognized.jpg", crop_img)
             bot.send_photo(chat_id=CHAT_ID, photo=open("recognized.jpg", "rb"), caption=f"Face recognized: {recognized_name}")
 
@@ -217,7 +228,6 @@ while True:
             print("Face Prediction Error:", e)
             continue
 
-        # Entry process
         lcd_clear()
         lcd_display(f"Hi {recognized_name}", LINE_1)
         lcd_display("Door is Open", LINE_2)
@@ -234,7 +244,6 @@ while True:
         speak("Door is closed")
         time.sleep(2)
 
-        # Exit prompt
         video.release()
         lcd_clear()
         lcd_display("You want to go out", LINE_1)
