@@ -169,7 +169,7 @@ video = cv2.VideoCapture(0)
 facedetect = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 try:
-    with open('data/names.pkl', ' 'rb') as w:
+    with open('data/names.pkl', 'rb') as w:
         LABELS = pickle.load(w)
     with open('data/faces_data.pkl', 'rb') as f:
         FACES = pickle.load(f)
@@ -184,8 +184,6 @@ knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
 # --- FACE ENTRY LOOP ---
-RECOGNITION_THRESHOLD = 5000  # Adjust for accuracy
-
 while True:
     lcd_clear()
     lcd_display("Show Your Face", LINE_1)
@@ -204,9 +202,9 @@ while True:
         resized_img = cv2.resize(crop_img, (50, 50)).flatten().reshape(1, -1)
 
         try:
-            distances, indices = knn.kneighbors(resized_img, n_neighbors=1)
-            if distances[0][0] < RECOGNITION_THRESHOLD:
-                recognized_name = knn.predict(resized_img)[0]
+            predicted_name = knn.predict(resized_img)[0]
+            if predicted_name in LABELS:
+                recognized_name = predicted_name
                 print("Face Recognized:", recognized_name)
 
                 lcd_clear()
@@ -235,11 +233,11 @@ while True:
                 video = cv2.VideoCapture(0)
                 break
             else:
-                print("Unrecognized face. Distance:", distances[0][0])
+                print("Unauthorized person detected!")
                 lcd_clear()
                 lcd_display("Access Denied", LINE_1)
-                lcd_display("No access for you", LINE_2)
-                speak("Access denied. No access for you")
+                lcd_display("You don't have", LINE_2)
+                speak("You don't have access")
                 GPIO.output(BUZZER_PIN, GPIO.HIGH)
                 time.sleep(1)
                 GPIO.output(BUZZER_PIN, GPIO.LOW)
