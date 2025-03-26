@@ -7,17 +7,28 @@ import time
 import pyttsx3
 import RPi.GPIO as GPIO
 import smbus2
+import threading
 from mfrc522 import SimpleMFRC522
 from sklearn.neighbors import KNeighborsClassifier
+from telegram.ext import Updater, CommandHandler
 
 # --- GPIO SETUP ---
 GPIO.setmode(GPIO.BCM)
 BUZZER_PIN = 17
 SERVO_PIN = 26
+LED_PIN = 19
+FAN_PIN = 13
+
 GPIO.setup(BUZZER_PIN, GPIO.OUT)
-GPIO.output(BUZZER_PIN, GPIO.LOW)
 GPIO.setup(SERVO_PIN, GPIO.OUT)
-servo = GPIO.PWM(SERVO_PIN, 50)  # 50Hz for standard servos
+GPIO.setup(LED_PIN, GPIO.OUT)
+GPIO.setup(FAN_PIN, GPIO.OUT)
+
+GPIO.output(BUZZER_PIN, GPIO.LOW)
+GPIO.output(LED_PIN, GPIO.HIGH)  # Relay OFF initially (active LOW)
+GPIO.output(FAN_PIN, GPIO.LOW)
+
+servo = GPIO.PWM(SERVO_PIN, 50)
 servo.start(0)
 
 # --- LCD SETUP ---
@@ -129,6 +140,38 @@ FACES = np.array(FACES).reshape(FACES.shape[0], -1)
 knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(FACES, LABELS)
 
+# --- Telegram Bot Setup ---
+TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
+
+def led_on(update, context):
+    GPIO.output(LED_PIN, GPIO.LOW)  # Relay ON (active LOW)
+    update.message.reply_text("LED turned ON")
+
+def led_off(update, context):
+    GPIO.output(LED_PIN, GPIO.HIGH)  # Relay OFF
+    update.message.reply_text("LED turned OFF")
+
+def fan_on(update, context):
+    GPIO.output(FAN_PIN, GPIO.HIGH)
+    update.message.reply_text("Fan turned ON")
+
+def fan_off(update, context):
+    GPIO.output(FAN_PIN, GPIO.LOW)
+    update.message.reply_text("Fan turned OFF")
+
+def start_bot():
+    updater = Updater(TELEGRAM_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("led_on", led_on))
+    dp.add_handler(CommandHandler("led_off", led_off))
+    dp.add_handler(CommandHandler("fan_on", fan_on))
+    dp.add_handler(CommandHandler("fan_off", fan_off))
+    updater.start_polling()
+
+bot_thread = threading.Thread(target=start_bot)
+bot_thread.daemon = True
+bot_thread.start()
+
 # --- MAIN LOOP ---
 while True:
     lcd_clear()
@@ -150,366 +193,72 @@ while True:
         try:
             output = knn.predict(resized_img)
             recognized_name = output[0]
-            face_index = LABELS.index(recognized_name)
             print("Recognized:", recognized_name)
         except Exception as e:
             print("Prediction Error:", e)
             continue
 
-        # Show instruction to tap card
+        # Face recognized → show welcome, turn ON LED & Fan
         lcd_clear()
-        lcd_display("Face Detected", LINE_1)
-        lcd_display("Tap your card", LINE_2)
-        speak(f"{recognized_name}, tap your card")
-        time.sleep(1)
+        lcd_display("Door is Open", LINE_1)
+        lcd_display("Welcome", LINE_2)
+        speak("Door is open, welcome")
+        GPIO.output(LED_PIN, GPIO.LOW)   # LED ON (relay)
+        GPIO.output(FAN_PIN, GPIO.HIGH)
 
-        # Read RFID Card
+        unlock_door()
+        time.sleep(10)
+        lock_door()
+
+        lcd_clear()
+        lcd_display("Open Door", LINE_1)
+        lcd_display("Put RFID Card", LINE_2)
+        speak("Please show your RFID card")
+
         try:
             card_id, card_text = reader.read()
-            print("Card ID:", card_id)
+            print("RFID:", card_id)
+
+            try:
+                user_index = LABELS.index(recognized_name)
+                expected_rfid = RFID_LIST[user_index]
+
+                if str(card_id) != str(expected_rfid):
+                    lcd_clear()
+                    lcd_display("Card doesn't match", LINE_1)
+                    lcd_display("Try again", LINE_2)
+                    speak("RFID does not match the recognized person")
+                    time.sleep(3)
+                    continue
+
+            except ValueError:
+                lcd_clear()
+                lcd_display("Unknown Person", LINE_1)
+                lcd_display("Access Denied", LINE_2)
+                speak("Access denied")
+                time.sleep(3)
+                continue
+
+            unlock_door()
+            time.sleep(5)
+            lock_door()
+
+            buzzer_and_lcd_message(recognized_name)
+
+            video.release()
+            time.sleep(5)
+            video = cv2.VideoCapture(0)
+
         except Exception as e:
             lcd_clear()
-            lcd_display("RFID Error", LINE_1)
-            lcd_display("Try Again", LINE_2)
-            print("RFID Read Error:", e)
+            lcd_display("RFID Error!", LINE_1)
+            print(f"RFID Error: {e}")
             time.sleep(2)
             continue
-
-        expected_rfid = RFID_LIST[face_index]
-        if str(card_id) != str(expected_rfid):
-            lcd_clear()
-            lcd_display("Card Mismatch", LINE_1)
-            lcd_display("Access Denied", LINE_2)
-            speak("Card does not match your face")
-            GPIO.output(BUZZER_PIN, GPIO.HIGH)
-            time.sleep(1.5)
-            GPIO.output(BUZZER_PIN, GPIO.LOW)
-            time.sleep(2)
-            continue
-
-        # Access Granted
-        unlock_door()
-        time.sleep(5)
-        lock_door()
-        buzzer_and_lcd_message(recognized_name)
-
-        video.release()
-        time.sleep(2)
-        video = cv2.VideoCapture(0)
 
     cv2.imshow("Frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         lcd_clear()
-        break
-
-# --- Cleanup ---
-video.release()
-cv2.destroyAllWindows()
-servo.stop()
-GPIO.cleanup()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# --- IMPORTS ---
-import cv2
-import pickle
-import numpy as np
-import time
-import pyttsx3
-import RPi.GPIO as GPIO
-import threading
-from mfrc522 import SimpleMFRC522
-from RPLCD.i2c import CharLCD
-from sklearn.neighbors import KNeighborsClassifier
-from telegram.ext import Updater, CommandHandler
-
-# --- LCD SETUP ---
-lcd = CharLCD(i2c_expander='PCF8574', address=0x27, port=1, cols=16, rows=2, dotsize=8)
-lcd.clear()
-lcd.write_string("Hi, welcome")
-lcd.crlf()
-lcd.write_string("Door Access Sys")
-time.sleep(3)
-lcd.clear()
-
-# --- GPIO SETUP ---
-GPIO.setwarnings(False)
-GPIO.setmode(GPIO.BCM)
-BUZZER_PIN = 17
-SERVO_PIN = 26
-LED_PIN = 19
-FAN_PIN = 13
-
-GPIO.setup(BUZZER_PIN, GPIO.OUT)
-GPIO.setup(SERVO_PIN, GPIO.OUT)
-GPIO.setup(LED_PIN, GPIO.OUT)
-GPIO.setup(FAN_PIN, GPIO.OUT)
-
-GPIO.output(BUZZER_PIN, GPIO.LOW)
-GPIO.output(LED_PIN, GPIO.LOW)
-GPIO.output(FAN_PIN, GPIO.LOW)
-
-servo = GPIO.PWM(SERVO_PIN, 50)
-servo.start(0)
-
-# --- Voice Engine ---
-engine = pyttsx3.init()
-reader = SimpleMFRC522()
-
-def speak(text):
-    engine.say(text)
-    engine.runAndWait()
-
-# --- Servo Control ---
-def unlock_door():
-    print("Unlocking Door")
-    servo.ChangeDutyCycle(12.0)
-    time.sleep(1)
-    servo.ChangeDutyCycle(0)
-
-def lock_door():
-    print("Locking Door")
-    servo.ChangeDutyCycle(2.5)
-    time.sleep(1)
-    servo.ChangeDutyCycle(0)
-
-# --- Telegram Bot (Optional) ---
-TELEGRAM_TOKEN = '7038070025:AAHOoUWmqVPvFmmITJKpbWVGcdwzLDmcVJI'
-
-def led_on(update, context):
-    GPIO.output(LED_PIN, GPIO.HIGH)
-    update.message.reply_text("LED ON")
-
-def led_off(update, context):
-    GPIO.output(LED_PIN, GPIO.LOW)
-    update.message.reply_text("LED OFF")
-
-def fan_on(update, context):
-    GPIO.output(FAN_PIN, GPIO.HIGH)
-    update.message.reply_text("Fan ON")
-
-def fan_off(update, context):
-    GPIO.output(FAN_PIN, GPIO.LOW)
-    update.message.reply_text("Fan OFF")
-
-def start_bot():
-    updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("led_on", led_on))
-    dp.add_handler(CommandHandler("led_off", led_off))
-    dp.add_handler(CommandHandler("fan_on", fan_on))
-    dp.add_handler(CommandHandler("fan_off", fan_off))
-    updater.start_polling()
-
-bot_thread = threading.Thread(target=start_bot)
-bot_thread.daemon = True
-bot_thread.start()
-
-# --- Global flag for exit thread ---
-exit_thread_running = True
-
-# --- RFID Exit Logic ---
-def rfid_exit_mode():
-    global exit_thread_running
-    while True:
-        if not exit_thread_running:
-            time.sleep(0.1)
-            continue
-        try:
-            card_id, card_text = reader.read()
-            if card_id in RFID_LIST:
-                user_index = RFID_LIST.index(card_id)
-                name = LABELS[user_index]
-                lcd.clear()
-                lcd.write_string("Exit Granted")
-                lcd.crlf()
-                lcd.write_string(f"Bye {name}")
-                speak(f"Goodbye {name}")
-                GPIO.output(LED_PIN, GPIO.HIGH)
-                GPIO.output(FAN_PIN, GPIO.HIGH)
-                unlock_door()
-                time.sleep(5)
-                lock_door()
-                lcd.clear()
-                lcd.write_string("Door Closed")
-                time.sleep(2)
-        except Exception as e:
-            print("RFID Exit Error:", e)
-
-exit_thread = threading.Thread(target=rfid_exit_mode)
-exit_thread.daemon = True
-exit_thread.start()
-
-# --- Load Face Data ---
-facedetect = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-video = cv2.VideoCapture(0)
-
-try:
-    with open('data/names.pkl', 'rb') as f:
-        LABELS = pickle.load(f)
-    with open('data/faces_data.pkl', 'rb') as f:
-        FACES = pickle.load(f)
-    with open('data/rfid_data.pkl', 'rb') as f:
-        RFID_LIST = pickle.load(f)
-except Exception as e:
-    print("Error loading face/RFID data:", e)
-    exit()
-
-FACES = np.array(FACES).reshape(len(FACES), -1)
-knn = KNeighborsClassifier(n_neighbors=5)
-knn.fit(FACES, LABELS)
-
-# --- FACE ENTRY LOOP ---
-while True:
-    lcd.clear()
-    lcd.write_string("Show Your Face")
-    lcd.crlf()
-    lcd.write_string("To the Camera")
-
-    ret, frame = video.read()
-    if not ret:
-        print("Camera error")
-        break
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = facedetect.detectMultiScale(gray, 1.3, 5)
-
-    for (x, y, w, h) in faces:
-        crop_img = frame[y:y+h, x:x+w]
-        resized_img = cv2.resize(crop_img, (50, 50)).flatten().reshape(1, -1)
-
-        try:
-            predicted_name = knn.predict(resized_img)[0]
-            if predicted_name in LABELS:
-                user_index = LABELS.index(predicted_name)
-
-                lcd.clear()
-                lcd.write_string("Face matched")
-                lcd.crlf()
-                lcd.write_string("Tap your card")
-                speak(f"{predicted_name}, tap your card to confirm")
-                time.sleep(1)
-
-                # Pause exit thread
-                exit_thread_running = False
-                try:
-                    card_id, card_text = reader.read()
-                except Exception as e:
-                    lcd.clear()
-                    lcd.write_string("RFID Error")
-                    speak("Card read failed")
-                    print("RFID Error:", e)
-                    exit_thread_running = True
-                    continue
-
-                # Resume exit thread
-                exit_thread_running = True
-
-                if card_id == RFID_LIST[user_index]:
-                    lcd.clear()
-                    lcd.write_string(f"Hi {predicted_name}")
-                    lcd.crlf()
-                    lcd.write_string("Door is Open")
-                    speak(f"Welcome {predicted_name}, door is open")
-                    GPIO.output(LED_PIN, GPIO.HIGH)
-                    GPIO.output(FAN_PIN, GPIO.HIGH)
-                    unlock_door()
-                    time.sleep(5)
-                    lock_door()
-                    lcd.clear()
-                    lcd.write_string("Door Closed")
-                    speak("Door is closed")
-                    time.sleep(2)
-
-                    # Prompt for exit
-                    video.release()
-                    lcd.clear()
-                    lcd.write_string("Want to go out?")
-                    lcd.crlf()
-                    lcd.write_string("Tap your card")
-                    speak("If you want to go out, please tap your card")
-                    time.sleep(5)
-                    video = cv2.VideoCapture(0)
-                    break
-                else:
-                    lcd.clear()
-                    lcd.write_string("Card Mismatch")
-                    lcd.crlf()
-                    lcd.write_string("Access Denied")
-                    speak("Card does not match the face. Access denied.")
-                    GPIO.output(BUZZER_PIN, GPIO.HIGH)
-                    time.sleep(1)
-                    GPIO.output(BUZZER_PIN, GPIO.LOW)
-                    time.sleep(2)
-            else:
-                lcd.clear()
-                lcd.write_string("Access Denied")
-                lcd.crlf()
-                lcd.write_string("You don't have")
-                speak("You don't have access")
-                GPIO.output(BUZZER_PIN, GPIO.HIGH)
-                time.sleep(1)
-                GPIO.output(BUZZER_PIN, GPIO.LOW)
-                time.sleep(2)
-
-        except Exception as e:
-            print("Face Prediction Error:", e)
-            continue
-
-    cv2.imshow("Camera", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        lcd.clear()
         break
 
 # --- Cleanup ---
